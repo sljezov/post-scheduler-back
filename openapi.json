@@ -1,0 +1,1079 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Social Media Post Scheduler API",
+    "version": "1.0.0",
+    "description": "RESTful API for scheduling and automatically publishing social media posts across multiple platforms. Supports a posts calendar, draft management, platform connections, and publish history."
+  },
+  "servers": [
+    {
+      "url": "https://api.postscheduler.io/v1",
+      "description": "Production"
+    },
+    {
+      "url": "http://localhost:8000/v1",
+      "description": "Local development"
+    }
+  ],
+  "tags": [
+    { "name": "auth",       "description": "Authentication and session management" },
+    { "name": "accounts",   "description": "Connected social media platform accounts" },
+    { "name": "workspaces", "description": "Team workspaces (multi-tenant)" },
+    { "name": "posts",      "description": "Post drafts and scheduled posts" },
+    { "name": "calendar",   "description": "Calendar view of scheduled posts" },
+    { "name": "media",      "description": "Media asset uploads" },
+    { "name": "publishes",  "description": "Publish attempts and history (read-only log)" },
+    { "name": "schedules",  "description": "Recurring post schedule templates" }
+  ],
+  "security": [
+    { "bearerAuth": [] }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "UUID": {
+        "type": "string",
+        "format": "uuid",
+        "examples": ["7f3e2a1b-4c5d-6e7f-8a9b-0c1d2e3f4a5b"]
+      },
+      "ISO8601": {
+        "type": "string",
+        "format": "date-time",
+        "examples": ["2026-05-01T14:30:00Z"]
+      },
+      "Platform": {
+        "type": "string",
+        "enum": ["instagram", "facebook", "twitter", "linkedin", "tiktok", "pinterest"]
+      },
+      "PostStatus": {
+        "type": "string",
+        "enum": ["draft", "scheduled", "publishing", "published", "failed", "cancelled"]
+      },
+      "User": {
+        "type": "object",
+        "required": ["id", "email", "name", "created_at"],
+        "properties": {
+          "id":         { "$ref": "#/components/schemas/UUID" },
+          "email":      { "type": "string", "format": "email" },
+          "name":       { "type": "string" },
+          "avatar_url": { "type": ["string", "null"], "format": "uri" },
+          "created_at": { "$ref": "#/components/schemas/ISO8601" }
+        }
+      },
+      "Workspace": {
+        "type": "object",
+        "required": ["id", "name", "slug", "owner_id", "created_at"],
+        "properties": {
+          "id":         { "$ref": "#/components/schemas/UUID" },
+          "name":       { "type": "string" },
+          "slug":       { "type": "string" },
+          "owner_id":   { "$ref": "#/components/schemas/UUID" },
+          "created_at": { "$ref": "#/components/schemas/ISO8601" }
+        }
+      },
+      "WorkspaceMember": {
+        "type": "object",
+        "required": ["user_id", "workspace_id", "role", "joined_at"],
+        "properties": {
+          "user_id":      { "$ref": "#/components/schemas/UUID" },
+          "workspace_id": { "$ref": "#/components/schemas/UUID" },
+          "role":         { "type": "string", "enum": ["owner", "editor", "viewer"] },
+          "joined_at":    { "$ref": "#/components/schemas/ISO8601" }
+        }
+      },
+      "Account": {
+        "type": "object",
+        "required": ["id", "workspace_id", "platform", "platform_user_id", "platform_username", "connected_at"],
+        "properties": {
+          "id":                { "$ref": "#/components/schemas/UUID" },
+          "workspace_id":      { "$ref": "#/components/schemas/UUID" },
+          "platform":          { "$ref": "#/components/schemas/Platform" },
+          "platform_user_id":  { "type": "string" },
+          "platform_username": { "type": "string" },
+          "avatar_url":        { "type": ["string", "null"], "format": "uri" },
+          "token_expires_at":  { "oneOf": [{ "$ref": "#/components/schemas/ISO8601" }, { "type": "null" }] },
+          "connected_at":      { "$ref": "#/components/schemas/ISO8601" }
+        }
+      },
+      "MediaAsset": {
+        "type": "object",
+        "required": ["id", "workspace_id", "url", "mime_type", "size_bytes", "uploaded_at"],
+        "properties": {
+          "id":               { "$ref": "#/components/schemas/UUID" },
+          "workspace_id":     { "$ref": "#/components/schemas/UUID" },
+          "url":              { "type": "string", "format": "uri" },
+          "mime_type":        { "type": "string" },
+          "size_bytes":       { "type": "integer" },
+          "width":            { "type": ["integer", "null"] },
+          "height":           { "type": ["integer", "null"] },
+          "duration_seconds": { "type": ["number", "null"] },
+          "uploaded_at":      { "$ref": "#/components/schemas/ISO8601" }
+        }
+      },
+      "PostTarget": {
+        "type": "object",
+        "description": "Per-platform content variant for a single post.",
+        "required": ["account_id", "platform"],
+        "properties": {
+          "account_id":       { "$ref": "#/components/schemas/UUID" },
+          "platform":         { "$ref": "#/components/schemas/Platform" },
+          "caption":          { "type": "string", "maxLength": 4096 },
+          "hashtags":         { "type": "array", "items": { "type": "string" } },
+          "media_ids":        { "type": "array", "items": { "$ref": "#/components/schemas/UUID" } },
+          "platform_options": {
+            "type": "object",
+            "description": "Platform-specific options (e.g. {\"first_comment\": \"...\", \"location_id\": \"...\"}).",
+            "additionalProperties": true
+          }
+        }
+      },
+      "Post": {
+        "type": "object",
+        "required": ["id", "workspace_id", "created_by", "status", "targets", "created_at", "updated_at"],
+        "properties": {
+          "id":           { "$ref": "#/components/schemas/UUID" },
+          "workspace_id": { "$ref": "#/components/schemas/UUID" },
+          "created_by":   { "$ref": "#/components/schemas/UUID" },
+          "status":       { "$ref": "#/components/schemas/PostStatus" },
+          "scheduled_at": { "oneOf": [{ "$ref": "#/components/schemas/ISO8601" }, { "type": "null" }] },
+          "published_at": { "oneOf": [{ "$ref": "#/components/schemas/ISO8601" }, { "type": "null" }] },
+          "targets": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/PostTarget" },
+            "minItems": 1
+          },
+          "tags":        { "type": "array", "items": { "type": "string" } },
+          "notes":       { "type": ["string", "null"] },
+          "schedule_id": {
+            "description": "Set when generated from a recurring schedule template.",
+            "oneOf": [{ "$ref": "#/components/schemas/UUID" }, { "type": "null" }]
+          },
+          "created_at":  { "$ref": "#/components/schemas/ISO8601" },
+          "updated_at":  { "$ref": "#/components/schemas/ISO8601" }
+        }
+      },
+      "PostWrite": {
+        "type": "object",
+        "description": "Request body for creating or replacing a post.",
+        "required": ["targets"],
+        "properties": {
+          "scheduled_at": { "oneOf": [{ "$ref": "#/components/schemas/ISO8601" }, { "type": "null" }] },
+          "targets": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/PostTarget" },
+            "minItems": 1
+          },
+          "tags":  { "type": "array", "items": { "type": "string" } },
+          "notes": { "type": ["string", "null"] }
+        }
+      },
+      "PostPatch": {
+        "type": "object",
+        "description": "Request body for partially updating a post.",
+        "properties": {
+          "scheduled_at": { "oneOf": [{ "$ref": "#/components/schemas/ISO8601" }, { "type": "null" }] },
+          "targets": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/PostTarget" },
+            "minItems": 1
+          },
+          "tags":  { "type": "array", "items": { "type": "string" } },
+          "notes": { "type": ["string", "null"] },
+          "status": {
+            "type": "string",
+            "enum": ["draft", "scheduled", "cancelled"],
+            "description": "Only these transitions are client-initiated."
+          }
+        }
+      },
+      "Publish": {
+        "type": "object",
+        "description": "Immutable record of a single publish attempt for one platform target.",
+        "required": ["id", "post_id", "account_id", "platform", "status", "attempted_at"],
+        "properties": {
+          "id":                { "$ref": "#/components/schemas/UUID" },
+          "post_id":           { "$ref": "#/components/schemas/UUID" },
+          "account_id":        { "$ref": "#/components/schemas/UUID" },
+          "platform":          { "$ref": "#/components/schemas/Platform" },
+          "status":            { "type": "string", "enum": ["success", "failed", "retrying"] },
+          "platform_post_id":  { "type": ["string", "null"] },
+          "platform_post_url": { "type": ["string", "null"], "format": "uri" },
+          "error_message":     { "type": ["string", "null"] },
+          "attempted_at":      { "$ref": "#/components/schemas/ISO8601" },
+          "completed_at":      { "oneOf": [{ "$ref": "#/components/schemas/ISO8601" }, { "type": "null" }] }
+        }
+      },
+      "CalendarEntry": {
+        "type": "object",
+        "description": "Lightweight post summary for calendar rendering.",
+        "required": ["post_id", "status", "scheduled_at", "platforms"],
+        "properties": {
+          "post_id":       { "$ref": "#/components/schemas/UUID" },
+          "status":        { "$ref": "#/components/schemas/PostStatus" },
+          "scheduled_at":  { "$ref": "#/components/schemas/ISO8601" },
+          "platforms":     { "type": "array", "items": { "$ref": "#/components/schemas/Platform" } },
+          "tags":          { "type": "array", "items": { "type": "string" } },
+          "thumbnail_url": { "type": ["string", "null"], "format": "uri" }
+        }
+      },
+      "Schedule": {
+        "type": "object",
+        "required": ["id", "workspace_id", "name", "cron", "timezone", "account_ids", "enabled", "created_at", "updated_at"],
+        "properties": {
+          "id":           { "$ref": "#/components/schemas/UUID" },
+          "workspace_id": { "$ref": "#/components/schemas/UUID" },
+          "name":         { "type": "string" },
+          "cron":         { "type": "string", "description": "Cron expression in UTC.", "examples": ["0 9 * * 1,3,5"] },
+          "timezone":     { "type": "string", "examples": ["Europe/Tallinn"] },
+          "account_ids":  { "type": "array", "items": { "$ref": "#/components/schemas/UUID" }, "minItems": 1 },
+          "enabled":      { "type": "boolean" },
+          "created_at":   { "$ref": "#/components/schemas/ISO8601" },
+          "updated_at":   { "$ref": "#/components/schemas/ISO8601" }
+        }
+      },
+      "PaginationMeta": {
+        "type": "object",
+        "required": ["total", "page", "per_page", "total_pages"],
+        "properties": {
+          "total":       { "type": "integer" },
+          "page":        { "type": "integer" },
+          "per_page":    { "type": "integer" },
+          "total_pages": { "type": "integer" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code":    { "type": "string" },
+          "message": { "type": "string" },
+          "details": { "type": "object", "additionalProperties": true }
+        }
+      }
+    },
+    "parameters": {
+      "workspaceId": {
+        "name": "workspace_id", "in": "path", "required": true,
+        "schema": { "$ref": "#/components/schemas/UUID" }
+      },
+      "postId": {
+        "name": "post_id", "in": "path", "required": true,
+        "schema": { "$ref": "#/components/schemas/UUID" }
+      },
+      "accountId": {
+        "name": "account_id", "in": "path", "required": true,
+        "schema": { "$ref": "#/components/schemas/UUID" }
+      },
+      "scheduleId": {
+        "name": "schedule_id", "in": "path", "required": true,
+        "schema": { "$ref": "#/components/schemas/UUID" }
+      },
+      "publishId": {
+        "name": "publish_id", "in": "path", "required": true,
+        "schema": { "$ref": "#/components/schemas/UUID" }
+      },
+      "mediaId": {
+        "name": "media_id", "in": "path", "required": true,
+        "schema": { "$ref": "#/components/schemas/UUID" }
+      },
+      "page": {
+        "name": "page", "in": "query",
+        "schema": { "type": "integer", "default": 1, "minimum": 1 }
+      },
+      "perPage": {
+        "name": "per_page", "in": "query",
+        "schema": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100 }
+      }
+    },
+    "responses": {
+      "NoContent": {
+        "description": "No content."
+      },
+      "NotFound": {
+        "description": "Resource not found.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "Unauthorized": {
+        "description": "Missing or invalid authentication.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "Forbidden": {
+        "description": "Authenticated user lacks permission.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "UnprocessableEntity": {
+        "description": "Validation error.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "Conflict": {
+        "description": "Conflict with current resource state.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      }
+    }
+  },
+  "paths": {
+    "/auth/token": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Obtain access token (password or refresh)",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "title": "Password grant",
+                    "type": "object",
+                    "required": ["grant_type", "email", "password"],
+                    "properties": {
+                      "grant_type": { "type": "string", "enum": ["password"] },
+                      "email":      { "type": "string", "format": "email" },
+                      "password":   { "type": "string", "format": "password" }
+                    }
+                  },
+                  {
+                    "title": "Refresh grant",
+                    "type": "object",
+                    "required": ["grant_type", "refresh_token"],
+                    "properties": {
+                      "grant_type":    { "type": "string", "enum": ["refresh_token"] },
+                      "refresh_token": { "type": "string" }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Token pair issued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["access_token", "refresh_token", "expires_in", "token_type"],
+                  "properties": {
+                    "access_token":  { "type": "string" },
+                    "refresh_token": { "type": "string" },
+                    "expires_in":    { "type": "integer", "description": "Seconds until access_token expires." },
+                    "token_type":    { "type": "string", "enum": ["Bearer"] }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/auth/token/revoke": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Revoke a refresh token",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["refresh_token"],
+                "properties": {
+                  "refresh_token": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": ["auth"],
+        "summary": "Get the authenticated user",
+        "responses": {
+          "200": {
+            "description": "Current user.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/workspaces": {
+      "get": {
+        "tags": ["workspaces"],
+        "summary": "List workspaces the authenticated user belongs to",
+        "responses": {
+          "200": {
+            "description": "Array of workspaces.",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Workspace" } } } }
+          }
+        }
+      },
+      "post": {
+        "tags": ["workspaces"],
+        "summary": "Create a workspace",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "slug"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "slug": { "type": "string", "pattern": "^[a-z0-9-]+$" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Workspace created.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Workspace" } } }
+          },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/workspaceId" }
+      ],
+      "get": {
+        "tags": ["workspaces"],
+        "summary": "Get a workspace",
+        "responses": {
+          "200": { "description": "Workspace.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Workspace" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "patch": {
+        "tags": ["workspaces"],
+        "summary": "Update a workspace",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": { "name": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated workspace.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Workspace" } } } },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "delete": {
+        "tags": ["workspaces"],
+        "summary": "Delete a workspace",
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/members": {
+      "parameters": [
+        { "$ref": "#/components/parameters/workspaceId" }
+      ],
+      "get": {
+        "tags": ["workspaces"],
+        "summary": "List workspace members",
+        "responses": {
+          "200": {
+            "description": "Array of members.",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/WorkspaceMember" } } } }
+          }
+        }
+      },
+      "post": {
+        "tags": ["workspaces"],
+        "summary": "Invite a member to a workspace",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "role"],
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "role":  { "type": "string", "enum": ["editor", "viewer"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Member added.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/WorkspaceMember" } } } },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/members/{user_id}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/workspaceId" },
+        { "name": "user_id", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/UUID" } }
+      ],
+      "patch": {
+        "tags": ["workspaces"],
+        "summary": "Change a member's role",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["role"],
+                "properties": { "role": { "type": "string", "enum": ["editor", "viewer"] } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated member.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/WorkspaceMember" } } } },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "delete": {
+        "tags": ["workspaces"],
+        "summary": "Remove a member from the workspace",
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/accounts": {
+      "parameters": [
+        { "$ref": "#/components/parameters/workspaceId" }
+      ],
+      "get": {
+        "tags": ["accounts"],
+        "summary": "List connected social media accounts",
+        "parameters": [
+          { "name": "platform", "in": "query", "schema": { "$ref": "#/components/schemas/Platform" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of connected accounts.",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Account" } } } }
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/accounts/oauth/authorize": {
+      "parameters": [
+        { "$ref": "#/components/parameters/workspaceId" }
+      ],
+      "get": {
+        "tags": ["accounts"],
+        "summary": "Begin OAuth flow — returns redirect URL for a platform",
+        "parameters": [
+          { "name": "platform",     "in": "query", "required": true, "schema": { "$ref": "#/components/schemas/Platform" } },
+          { "name": "redirect_uri", "in": "query", "required": true, "schema": { "type": "string", "format": "uri" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "OAuth authorization URL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["authorization_url", "state"],
+                  "properties": {
+                    "authorization_url": { "type": "string", "format": "uri" },
+                    "state":             { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/accounts/oauth/callback": {
+      "parameters": [
+        { "$ref": "#/components/parameters/workspaceId" }
+      ],
+      "post": {
+        "tags": ["accounts"],
+        "summary": "Complete OAuth flow — exchange code for tokens and save account",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["platform", "code", "state", "redirect_uri"],
+                "properties": {
+                  "platform":     { "$ref": "#/components/schemas/Platform" },
+                  "code":         { "type": "string" },
+                  "state":        { "type": "string" },
+                  "redirect_uri": { "type": "string", "format": "uri" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Account connected.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Account" } } } },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/accounts/{account_id}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/workspaceId" },
+        { "$ref": "#/components/parameters/accountId" }
+      ],
+      "get": {
+        "tags": ["accounts"],
+        "summary": "Get a connected account",
+        "responses": {
+          "200": { "description": "Account.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Account" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "delete": {
+        "tags": ["accounts"],
+        "summary": "Disconnect a social media account",
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/accounts/{account_id}/token": {
+      "parameters": [
+        { "$ref": "#/components/parameters/workspaceId" },
+        { "$ref": "#/components/parameters/accountId" }
+      ],
+      "put": {
+        "tags": ["accounts"],
+        "summary": "Refresh the OAuth token for a connected account",
+        "responses": {
+          "200": { "description": "Token refreshed.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Account" } } } },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/media": {
+      "parameters": [
+        { "$ref": "#/components/parameters/workspaceId" }
+      ],
+      "get": {
+        "tags": ["media"],
+        "summary": "List media assets",
+        "parameters": [
+          { "$ref": "#/components/parameters/page" },
+          { "$ref": "#/components/parameters/perPage" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of media assets.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["data", "meta"],
+                  "properties": {
+                    "data": { "type": "array", "items": { "$ref": "#/components/schemas/MediaAsset" } },
+                    "meta": { "$ref": "#/components/schemas/PaginationMeta" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["media"],
+        "summary": "Upload a media asset",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["file"],
+                "properties": { "file": { "type": "string", "format": "binary" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Media asset uploaded.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MediaAsset" } } } },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/media/{media_id}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/workspaceId" },
+        { "$ref": "#/components/parameters/mediaId" }
+      ],
+      "get": {
+        "tags": ["media"],
+        "summary": "Get a media asset",
+        "responses": {
+          "200": { "description": "Media asset.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MediaAsset" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "delete": {
+        "tags": ["media"],
+        "summary": "Delete a media asset",
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/posts": {
+      "parameters": [
+        { "$ref": "#/components/parameters/workspaceId" }
+      ],
+      "get": {
+        "tags": ["posts"],
+        "summary": "List posts",
+        "parameters": [
+          { "$ref": "#/components/parameters/page" },
+          { "$ref": "#/components/parameters/perPage" },
+          { "name": "status",         "in": "query", "schema": { "$ref": "#/components/schemas/PostStatus" } },
+          { "name": "platform",       "in": "query", "schema": { "$ref": "#/components/schemas/Platform" } },
+          { "name": "account_id",     "in": "query", "schema": { "$ref": "#/components/schemas/UUID" } },
+          { "name": "tag",            "in": "query", "schema": { "type": "string" } },
+          { "name": "scheduled_from", "in": "query", "schema": { "$ref": "#/components/schemas/ISO8601" } },
+          { "name": "scheduled_to",   "in": "query", "schema": { "$ref": "#/components/schemas/ISO8601" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of posts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["data", "meta"],
+                  "properties": {
+                    "data": { "type": "array", "items": { "$ref": "#/components/schemas/Post" } },
+                    "meta": { "$ref": "#/components/schemas/PaginationMeta" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["posts"],
+        "summary": "Create a post (draft or scheduled)",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PostWrite" } } }
+        },
+        "responses": {
+          "201": { "description": "Post created.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Post" } } } },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/posts/{post_id}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/workspaceId" },
+        { "$ref": "#/components/parameters/postId" }
+      ],
+      "get": {
+        "tags": ["posts"],
+        "summary": "Get a post",
+        "responses": {
+          "200": { "description": "Post.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Post" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "put": {
+        "tags": ["posts"],
+        "summary": "Replace a post (full update)",
+        "description": "Replaces the entire post. Only allowed when status is `draft` or `scheduled`.",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PostWrite" } } }
+        },
+        "responses": {
+          "200": { "description": "Updated post.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Post" } } } },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" }
+        }
+      },
+      "patch": {
+        "tags": ["posts"],
+        "summary": "Partially update a post",
+        "description": "Partial update. Use status `cancelled` to cancel a scheduled post.",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PostPatch" } } }
+        },
+        "responses": {
+          "200": { "description": "Updated post.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Post" } } } },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" }
+        }
+      },
+      "delete": {
+        "tags": ["posts"],
+        "summary": "Delete a post",
+        "description": "Only drafts and cancelled posts may be deleted.",
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/posts/{post_id}/publishes": {
+      "parameters": [
+        { "$ref": "#/components/parameters/workspaceId" },
+        { "$ref": "#/components/parameters/postId" }
+      ],
+      "get": {
+        "tags": ["publishes"],
+        "summary": "List publish attempts for a post",
+        "responses": {
+          "200": {
+            "description": "Array of publish records.",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Publish" } } } }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/posts/{post_id}/publishes/{publish_id}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/workspaceId" },
+        { "$ref": "#/components/parameters/postId" },
+        { "$ref": "#/components/parameters/publishId" }
+      ],
+      "get": {
+        "tags": ["publishes"],
+        "summary": "Get a publish attempt",
+        "responses": {
+          "200": { "description": "Publish record.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Publish" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/posts/{post_id}/retry": {
+      "parameters": [
+        { "$ref": "#/components/parameters/workspaceId" },
+        { "$ref": "#/components/parameters/postId" }
+      ],
+      "post": {
+        "tags": ["publishes"],
+        "summary": "Retry a failed post",
+        "description": "Creates a new publish attempt for all failed targets. Only allowed when post status is `failed`.",
+        "responses": {
+          "202": {
+            "description": "Retry accepted, new publish records created.",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Publish" } } } }
+          },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/calendar": {
+      "parameters": [
+        { "$ref": "#/components/parameters/workspaceId" }
+      ],
+      "get": {
+        "tags": ["calendar"],
+        "summary": "Get calendar entries for a date range",
+        "description": "Returns lightweight post summaries ordered by scheduled_at. Ideal for rendering a calendar view.",
+        "parameters": [
+          { "name": "from",       "in": "query", "required": true, "schema": { "type": "string", "format": "date", "examples": ["2026-05-01"] } },
+          { "name": "to",         "in": "query", "required": true, "schema": { "type": "string", "format": "date", "examples": ["2026-05-31"] } },
+          { "name": "platform",   "in": "query", "schema": { "$ref": "#/components/schemas/Platform" } },
+          { "name": "account_id", "in": "query", "schema": { "$ref": "#/components/schemas/UUID" } },
+          { "name": "status",     "in": "query", "schema": { "$ref": "#/components/schemas/PostStatus" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Calendar entries.",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/CalendarEntry" } } } }
+          },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/schedules": {
+      "parameters": [
+        { "$ref": "#/components/parameters/workspaceId" }
+      ],
+      "get": {
+        "tags": ["schedules"],
+        "summary": "List recurring schedule templates",
+        "responses": {
+          "200": {
+            "description": "Array of schedules.",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Schedule" } } } }
+          }
+        }
+      },
+      "post": {
+        "tags": ["schedules"],
+        "summary": "Create a recurring schedule template",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "cron", "timezone", "account_ids"],
+                "properties": {
+                  "name":        { "type": "string" },
+                  "cron":        { "type": "string", "examples": ["0 9 * * 1,3,5"] },
+                  "timezone":    { "type": "string", "examples": ["Europe/Tallinn"] },
+                  "account_ids": { "type": "array", "items": { "$ref": "#/components/schemas/UUID" }, "minItems": 1 },
+                  "enabled":     { "type": "boolean", "default": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Schedule created.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Schedule" } } } },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/schedules/{schedule_id}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/workspaceId" },
+        { "$ref": "#/components/parameters/scheduleId" }
+      ],
+      "get": {
+        "tags": ["schedules"],
+        "summary": "Get a schedule template",
+        "responses": {
+          "200": { "description": "Schedule.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Schedule" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "put": {
+        "tags": ["schedules"],
+        "summary": "Replace a schedule template",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "cron", "timezone", "account_ids", "enabled"],
+                "properties": {
+                  "name":        { "type": "string" },
+                  "cron":        { "type": "string" },
+                  "timezone":    { "type": "string" },
+                  "account_ids": { "type": "array", "items": { "$ref": "#/components/schemas/UUID" }, "minItems": 1 },
+                  "enabled":     { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated schedule.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Schedule" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" }
+        }
+      },
+      "patch": {
+        "tags": ["schedules"],
+        "summary": "Partially update a schedule template",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name":        { "type": "string" },
+                  "cron":        { "type": "string" },
+                  "timezone":    { "type": "string" },
+                  "account_ids": { "type": "array", "items": { "$ref": "#/components/schemas/UUID" }, "minItems": 1 },
+                  "enabled":     { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated schedule.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Schedule" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/UnprocessableEntity" }
+        }
+      },
+      "delete": {
+        "tags": ["schedules"],
+        "summary": "Delete a schedule template",
+        "description": "Deletes the template. Previously generated posts are not affected.",
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/schedules/{schedule_id}/posts": {
+      "parameters": [
+        { "$ref": "#/components/parameters/workspaceId" },
+        { "$ref": "#/components/parameters/scheduleId" }
+      ],
+      "get": {
+        "tags": ["schedules"],
+        "summary": "List posts generated by a schedule template",
+        "parameters": [
+          { "$ref": "#/components/parameters/page" },
+          { "$ref": "#/components/parameters/perPage" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of posts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["data", "meta"],
+                  "properties": {
+                    "data": { "type": "array", "items": { "$ref": "#/components/schemas/Post" } },
+                    "meta": { "$ref": "#/components/schemas/PaginationMeta" }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    }
+  }
+}
