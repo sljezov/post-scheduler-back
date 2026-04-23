@@ -16,7 +16,7 @@
     }
   ],
   "tags": [
-    { "name": "auth",       "description": "Authentication and session management" },
+    { "name": "sessions",   "description": "Session management" },
     { "name": "accounts",   "description": "Connected social media platform accounts" },
     { "name": "workspaces", "description": "Team workspaces (multi-tenant)" },
     { "name": "posts",      "description": "Post drafts and scheduled posts" },
@@ -318,44 +318,29 @@
     }
   },
   "paths": {
-    "/auth/token": {
+    "/sessions": {
       "post": {
-        "tags": ["auth"],
-        "summary": "Obtain access token (password or refresh)",
+        "tags": ["sessions"],
+        "summary": "Create a session (login)",
         "security": [],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "oneOf": [
-                  {
-                    "title": "Password grant",
-                    "type": "object",
-                    "required": ["grant_type", "email", "password"],
-                    "properties": {
-                      "grant_type": { "type": "string", "enum": ["password"] },
-                      "email":      { "type": "string", "format": "email" },
-                      "password":   { "type": "string", "format": "password" }
-                    }
-                  },
-                  {
-                    "title": "Refresh grant",
-                    "type": "object",
-                    "required": ["grant_type", "refresh_token"],
-                    "properties": {
-                      "grant_type":    { "type": "string", "enum": ["refresh_token"] },
-                      "refresh_token": { "type": "string" }
-                    }
-                  }
-                ]
+                "type": "object",
+                "required": ["email", "password"],
+                "properties": {
+                  "email":    { "type": "string", "format": "email" },
+                  "password": { "type": "string", "format": "password" }
+                }
               }
             }
           }
         },
         "responses": {
-          "200": {
-            "description": "Token pair issued.",
+          "201": {
+            "description": "Session created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -375,39 +360,23 @@
         }
       }
     },
-    "/auth/token/revoke": {
-      "post": {
-        "tags": ["auth"],
-        "summary": "Revoke a refresh token",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["refresh_token"],
-                "properties": {
-                  "refresh_token": { "type": "string" }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "204": { "$ref": "#/components/responses/NoContent" }
-        }
-      }
-    },
-    "/auth/me": {
+    "/sessions/current": {
       "get": {
-        "tags": ["auth"],
-        "summary": "Get the authenticated user",
+        "tags": ["sessions"],
+        "summary": "Get the current session (authenticated user)",
         "responses": {
           "200": {
             "description": "Current user.",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } } }
           },
           "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      },
+      "delete": {
+        "tags": ["sessions"],
+        "summary": "Destroy the current session (logout)",
+        "responses": {
+          "204": { "$ref": "#/components/responses/NoContent" }
         }
       }
     },
